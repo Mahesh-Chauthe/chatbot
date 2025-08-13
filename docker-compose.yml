@@ -47,6 +47,7 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_API_BASE_URL=http://localhost:8000
+      - DANGEROUSLY_DISABLE_HOST_CHECK=true
     depends_on:
       - backend
     networks:
