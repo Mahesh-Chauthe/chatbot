@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
-import jwt
+from jose import jwt
 from datetime import datetime, timedelta
 import os
 
