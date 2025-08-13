@@ -11,62 +11,50 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+    networks:
+      - chatbot-network
 
-  # FastAPI Backend
+  # Backend API
   backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: chatbot-backend
     ports:
       - "8000:8000"
     environment:
       - JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production-12345
-      - GEMINI_API_KEY=${GEMINI_API_KEY}          # Changed from OPENAI_API_KEY
-      - GEMINI_MODEL=gemini-2.0-flash             # Changed from OPENAI_MODEL
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - GEMINI_API_KEY=your-gemini-api-key-here
+      - GEMINI_MODEL=gemini-2.0-flash
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin123
-      - S3_ENDPOINT_URL=http://minio:9000
-      - S3_BUCKET_NAME=chat-conversations
       - AWS_REGION=us-east-1
+      - S3_BUCKET_NAME=chat-conversations
+      - S3_ENDPOINT_URL=http://minio:9000
     depends_on:
-      minio:
-        condition: service_healthy
-    restart: unless-stopped
-    volumes:
-      - ./backend/app:/app/app
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - minio
+    networks:
+      - chatbot-network
 
-  # React Frontend (no changes needed)
+  # Frontend
   frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     container_name: chatbot-frontend
     ports:
       - "3000:3000"
     environment:
       - REACT_APP_API_BASE_URL=http://localhost:8000
-      - CHOKIDAR_USEPOLLING=true
     depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - backend
+    networks:
+      - chatbot-network
 
 volumes:
   minio_data:
+
+networks:
+  chatbot-network:
+    driver: bridge

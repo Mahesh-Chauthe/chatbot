@@ -1,4 +1,3 @@
-cat > backend/app/routers/chat.py << 'EOF'
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, validator
 from typing import List, Optional
@@ -30,22 +29,10 @@ class ChatResponse(BaseModel):
     message_id: str
     timestamp: datetime
 
-class ConversationSummary(BaseModel):
-    conversation_id: str
-    updated_at: datetime
-    message_count: int
-    preview: str
-
-class ConversationListResponse(BaseModel):
-    conversations: List[ConversationSummary]
-    total: int
-
 def get_chat_service() -> ChatService:
-    """Dependency to get chat service instance"""
     return ChatService()
 
 def get_s3_service() -> S3Service:
-    """Dependency to get S3 service instance"""
     return S3Service()
 
 @router.post("/send", response_model=ChatResponse)
@@ -55,48 +42,51 @@ async def send_message(
     chat_service: ChatService = Depends(get_chat_service),
     s3_service: S3Service = Depends(get_s3_service)
 ):
-    """Send a message to AI and save the conversation"""
+    """Send a message to ChatGPT and save the conversation to S3"""
     user_id = request.state.user_id
     
-    # Generate IDs
     conversation_id = chat_message.conversation_id or str(uuid.uuid4())
     message_id = str(uuid.uuid4())
     timestamp = datetime.utcnow()
     
-    logger.info(f"Processing message for user {user_id}, conversation {conversation_id}")
-    
     try:
-        # Get response from AI service
+        # Get existing conversation for context
+        existing_conversation = await s3_service.get_conversation(conversation_id, user_id)
+        conversation_history = existing_conversation.get("messages", []) if existing_conversation else []
+        
+        # Get response from ChatGPT
         llm_response = await chat_service.generate_response(
             message=chat_message.message,
             conversation_id=conversation_id,
-            user_id=user_id
+            user_id=user_id,
+            conversation_history=conversation_history
         )
         
-        # Prepare chat data for storage
+        # Prepare new messages
+        new_messages = [
+            {
+                "id": message_id,
+                "role": "user",
+                "content": chat_message.message,
+                "timestamp": timestamp.isoformat()
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "role": "assistant",
+                "content": llm_response,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        ]
+        
+        # Update conversation data
         chat_data = {
             "conversation_id": conversation_id,
             "user_id": user_id,
-            "messages": [
-                {
-                    "id": message_id,
-                    "role": "user",
-                    "content": chat_message.message,
-                    "timestamp": timestamp.isoformat()
-                },
-                {
-                    "id": str(uuid.uuid4()),
-                    "role": "assistant",
-                    "content": llm_response,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            ]
+            "messages": conversation_history + new_messages
         }
         
-        # Save conversation to S3
-        save_success = await s3_service.save_conversation(conversation_id, chat_data)
-        if not save_success:
-            logger.warning(f"Failed to save conversation {conversation_id} to S3")
+        # Save to S3
+        await s3_service.save_conversation(conversation_id, chat_data)
         
         return ChatResponse(
             response=llm_response,
@@ -112,10 +102,9 @@ async def send_message(
             detail=f"Error processing message: {str(e)}"
         )
 
-@router.get("/conversations", response_model=ConversationListResponse)
+@router.get("/conversations")
 async def get_conversations(
     request: Request,
-    limit: int = 50,
     s3_service: S3Service = Depends(get_s3_service)
 ):
     """Get list of conversations for the current user"""
@@ -123,22 +112,7 @@ async def get_conversations(
     
     try:
         conversations = await s3_service.get_user_conversations(user_id)
-        
-        # Apply limit
-        limited_conversations = conversations[:limit]
-        
-        return ConversationListResponse(
-            conversations=[
-                ConversationSummary(
-                    conversation_id=conv["conversation_id"],
-                    updated_at=datetime.fromisoformat(conv["updated_at"]),
-                    message_count=conv["message_count"],
-                    preview=conv["preview"]
-                )
-                for conv in limited_conversations
-            ],
-            total=len(conversations)
-        )
+        return {"conversations": conversations}
         
     except Exception as e:
         logger.error(f"Error fetching conversations: {str(e)}")
@@ -175,4 +149,3 @@ async def get_conversation(
             status_code=500,
             detail="Error fetching conversation"
         )
-EOF

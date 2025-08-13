@@ -1,4 +1,3 @@
-cat > backend/app/routers/chat.py << 'EOF'
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, validator
 from typing import List, Optional
@@ -55,7 +54,7 @@ async def send_message(
     chat_service: ChatService = Depends(get_chat_service),
     s3_service: S3Service = Depends(get_s3_service)
 ):
-    """Send a message to AI and save the conversation"""
+    """Send a message to ChatGPT and save the conversation"""
     user_id = request.state.user_id
     
     # Generate IDs
@@ -66,7 +65,7 @@ async def send_message(
     logger.info(f"Processing message for user {user_id}, conversation {conversation_id}")
     
     try:
-        # Get response from AI service
+        # Get response from ChatGPT
         llm_response = await chat_service.generate_response(
             message=chat_message.message,
             conversation_id=conversation_id,
@@ -86,7 +85,7 @@ async def send_message(
                 },
                 {
                     "id": str(uuid.uuid4()),
-                    "role": "assistant",
+                    "role": "assistant", 
                     "content": llm_response,
                     "timestamp": datetime.utcnow().isoformat()
                 }
@@ -175,4 +174,32 @@ async def get_conversation(
             status_code=500,
             detail="Error fetching conversation"
         )
-EOF
+
+@router.delete("/conversation/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    request: Request,
+    s3_service: S3Service = Depends(get_s3_service)
+):
+    """Delete a specific conversation"""
+    user_id = request.state.user_id
+    
+    try:
+        success = await s3_service.delete_conversation(conversation_id, user_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Conversation not found"
+            )
+        
+        return {"message": "Conversation deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting conversation {conversation_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error deleting conversation"
+        )
