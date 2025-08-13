@@ -1,6 +1,6 @@
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from jose import jwt
+import jwt
 import os
 from typing import List
 
