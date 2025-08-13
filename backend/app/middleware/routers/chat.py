@@ -85,7 +85,7 @@ async def send_message(
                 },
                 {
                     "id": str(uuid.uuid4()),
-                    "role": "assistant", 
+                    "role": "assistant",
                     "content": llm_response,
                     "timestamp": datetime.utcnow().isoformat()
                 }
